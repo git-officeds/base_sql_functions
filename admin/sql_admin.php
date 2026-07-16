@@ -3,7 +3,10 @@
 /****************************************************
   設定情報
  ****************************************************/
+// タイムゾーン
 date_default_timezone_set("Asia/Tokyo");
+// デバッグモード（ログをコンソールに出力）
+$debug_mode = true;
 
 /****************************************************
   日付・日時のフォームコントロール間での変換関数
@@ -48,29 +51,37 @@ function sqlForm2Datetime($date)
 //ログ出力
 function console_log($message)
 {
-	echo <<<EOM
-		<script>
-			console.log("{$message}");
-		</script>
-	EOM;
-	return;
+	// debugモード時のみ実行
+	global $debug_mode;
+	if ($debug_mode) {
+		echo <<<EOM
+			<script>
+				console.log("{$message}");
+			</script>
+		EOM;
+		return;
+	}
 }
 
 //エラーログ出力
 function err_log($e, $message)
 {
-	$getfile = preg_replace('/\\\/u', '/', $e->getFile());
-	echo <<<EOM
-		<script>
-			console.log(`
-				{$message}
-				{$e->getMessage()}
-				FILE:{$getfile}
-				LINE:{$e->getLine()}
-			`);
-		</script>
-	EOM;
-	return;
+	// debugモード時のみ実行
+	global $debug_mode;
+	if ($debug_mode) {
+		$getfile = preg_replace('/\\\/u', '/', $e->getFile());
+		echo <<<EOM
+			<script>
+				console.log(`
+					{$message}
+					{$e->getMessage()}
+					FILE:{$getfile}
+					LINE:{$e->getLine()}
+				`);
+			</script>
+		EOM;
+		return;
+	}
 }
 
 
@@ -128,48 +139,17 @@ function join_server()
 /****************************************************
   ログイン
  ****************************************************/
-function sql_search_user($tablename = null, $fields = null, $keyword = null, $orderby = null)
+function sql_login_admin($id = null, $pass = null)
 {
-
 	try {
-		// 配列の初期化
-		$result = array();
 
-		// テーブル名のチェック
-		if ($tablename == null) {
-			throw new Exception("テーブル参照エラー");
+		// IDのチェック
+		if ($id == null) {
+			throw new Exception("IDエラー");
 		}
-		// フィールド名のチェック
-		if ($fields == null) {
-			throw new Exception("フィールド指定エラー");
-		}
-		// 並べ替え指定が無い場合は無し
-		$or = ($orderby == null) ? "" : " ORDER BY " . $orderby;
-
-		// キーワードが未指定の場合はすべて表示
-		if ($keyword == null) {
-			$sql = "SELECT * FROM {$tablename} WHERE 1" . $or . ";";
-			// キーワードありの場合
-		} else {
-			// ユーザーからの入力を安全に分割する
-			$keyword_trimmed = preg_replace('/^[ \s]+|[ \s]+$/u', '', $keyword);
-			$keys = preg_split('/[\s ]+/u', $keyword_trimmed);
-			$flds = implode(',', $fields);
-
-			// 検索対象のカラムを1つに結合
-			$search_target = "CONCAT_WS(' ', {$flds})";
-
-			// SQLの「LIKE ?」の部分をキーワードの数だけ作る
-			$conditions = [];
-			foreach ($keys as $index => $key) {
-				// プレースホルダーを「:word0, :word1...」と名前付きにする
-				$conditions[] = "{$search_target} LIKE :word{$index}";
-			}
-
-			// SQL文を組み立てる
-			$sql = "SELECT * FROM {$tablename} WHERE " . implode(' OR ', $conditions);
-			// 生成されるSQL例（2語の場合）: 
-			// SELECT * FROM users WHERE CONCAT_WS(' ', col1, col2, col3) LIKE :word0 OR CONCAT_WS(' ', col1, col2, col3) LIKE :word1
+		// パスワードのチェック
+		if ($pass == null) {
+			throw new Exception("パスワードエラー");
 		}
 
 		// データベースのログイン情報を取得
@@ -178,51 +158,25 @@ function sql_search_user($tablename = null, $fields = null, $keyword = null, $or
 			throw new Exception('データベースの取得に失敗しました。');
 		}
 
+		// SQL文を作成
+		$sql = "SELECT * FROM db_admin WHERE ID=:id AND pass=:pass;";
+
 		// プリペアドステートメントを作成
 		$stmt = $dbh->prepare($sql);
 
-		// ここで bindValue（プレースホルダーに値をバインド）
-		foreach ($keys as $index => $key) {
-			// 検索用のワイルドカード「%」を前後に付与する
-			$bind_value = "%{$key}%";
-
-			// 第1引数：プレースホルダー名（例：:word0）
-			// 第2引数：検索キーワード（例：%カフェ%）
-			// 第3引数：データの型（文字列を指定）
-			$stmt->bindValue(":word{$index}", $bind_value, PDO::PARAM_STR);
-		}
+		// バインド
+		$stmt->bindValue(":id", $id, PDO::PARAM_STR);
+		$stmt->bindValue(":pass", $pass, PDO::PARAM_STR);
 
 		//検索クエリの実行
 		$stmt->execute();
 
-		// 全レコードの内容を変数に転写
-		$i = 0;
-		while ($get_sql = $stmt->fetch(PDO::FETCH_ASSOC)) {
-			$result['records'][$i] = $get_sql;
-			$i++;
-		}
+		// レコードが取得できた（ログインできた）かどうかをBooleanで取得
+		$result = $stmt->fetch() ? true : false;
 
-		//配列の中身が空の場合
-		if (is_array($result['records']) && empty($result['records'])) {
-			throw new Exception('情報が見つかりません');
-		}
-
-		// レコードの総数を取得
-		$result['length'] = count($result['records']);
-		// 検索条件を格納
-		$result['search_condition'] = [
-			'tablename' => $tablename,
-			'fields' => $fields,
-			'keyword' => $keyword,
-			'orderby' => $orderby,
-			'sql' => $sql
-		];
-		// 出力用メッセージ
-		$result['message'] = "{$result['length']}件 のキーワード「{$keyword}」を含むレコードが見つかりました。";
-		console_log('データベース検索完了');
+		console_log('ログイン完了');
 	} catch (\Throwable $e) {
-		$result['length'] = null;
-		$result['message'] = "該当する情報がありません。";
+		$result = false;
 		console_log($e->getMessage());
 	} finally {
 		return $result;

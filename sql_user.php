@@ -3,7 +3,10 @@
 /****************************************************
   設定情報
  ****************************************************/
+// タイムゾーン
 date_default_timezone_set("Asia/Tokyo");
+// デバッグモード（ログをコンソールに出力）
+$debug_mode = true;
 
 /****************************************************
   日付・日時のフォームコントロール間での変換関数
@@ -48,29 +51,37 @@ function sqlForm2Datetime($date)
 //ログ出力
 function console_log($message)
 {
-	echo <<<EOM
-		<script>
-			console.log("{$message}");
-		</script>
-	EOM;
-	return;
+	// debugモード時のみ実行
+	global $debug_mode;
+	if ($debug_mode) {
+		echo <<<EOM
+			<script>
+				console.log("{$message}");
+			</script>
+		EOM;
+		return;
+	}
 }
 
 //エラーログ出力
 function err_log($e, $message)
 {
-	$getfile = preg_replace('/\\\/u', '/', $e->getFile());
-	echo <<<EOM
-		<script>
-			console.log(`
-				{$message}
-				{$e->getMessage()}
-				FILE:{$getfile}
-				LINE:{$e->getLine()}
-			`);
-		</script>
-	EOM;
-	return;
+	// debugモード時のみ実行
+	global $debug_mode;
+	if ($debug_mode) {
+		$getfile = preg_replace('/\\\/u', '/', $e->getFile());
+		echo <<<EOM
+			<script>
+				console.log(`
+					{$message}
+					{$e->getMessage()}
+					FILE:{$getfile}
+					LINE:{$e->getLine()}
+				`);
+			</script>
+		EOM;
+		return;
+	}
 }
 
 
